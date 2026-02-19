@@ -194,7 +194,7 @@ module "irsa_aws_lb_controller" {
 ###############################################################################
 # AWS Load Balancer Controller Helm
 ###############################################################################
-rresource "helm_release" "aws_lb_controller" {
+resource "helm_release" "aws_lb_controller" {
   name       = "aws-load-balancer-controller"
   namespace  = "kube-system"
   repository = "https://aws.github.io/eks-charts"
