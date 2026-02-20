@@ -9,6 +9,14 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.47.0"
     }
+    kubernetes = {
+      source  = "hashicorp/kubernetes"
+      version = ">= 2.25.0"
+    }
+    helm = {
+      source  = "hashicorp/helm"
+      version = "~> 1.3"
+    }
     random = {
       source  = "hashicorp/random"
       version = "~> 3.6.1"
@@ -21,18 +29,9 @@ terraform {
       source  = "hashicorp/cloudinit"
       version = "~> 2.3.4"
     }
-
-    kubernetes = {
-      source  = "hashicorp/helm"
-      version = ">= 2.11.0"
-    }
-    
-    helm = {
-      source  = "hashicorp/helm"
-      version = ">= 2.11.0"
-    }
   }
 }
+
 
 ###############################################################################
 # AWS Provider
@@ -145,7 +144,7 @@ module "cluster_autoscaler" {
 
   enabled = true
 
-  cluster_name                     = module.eks.cluster_id
+  cluster_name                     = local.cluster_name
   cluster_identity_oidc_issuer     = module.eks.cluster_oidc_issuer_url
   cluster_identity_oidc_issuer_arn = module.eks.oidc_provider_arn
   aws_region                       = var.region
@@ -173,10 +172,10 @@ module "irsa_ebs_csi" {
 # Helm Provider (After EKS)
 ###############################################################################
 provider "helm" {
-  kubernetes = {
+  kubernetes {
     host                   = module.eks.cluster_endpoint
     cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
-    exec = {
+    exec {
       api_version = "client.authentication.k8s.io/v1"
       command     = "aws"
       args = [
@@ -188,6 +187,28 @@ provider "helm" {
         var.region
       ]
     }
+  }
+}
+
+###############################################################################
+# AWS kubernetes provider
+###############################################################################
+
+provider "kubernetes" {
+  host                   = module.eks.cluster_endpoint
+  cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
+
+  exec {
+    api_version = "client.authentication.k8s.io/v1"
+    command     = "aws"
+    args = [
+      "eks",
+      "get-token",
+      "--cluster-name",
+      module.eks.cluster_name,
+      "--region",
+      var.region
+    ]
   }
 }
 
@@ -221,32 +242,35 @@ resource "helm_release" "aws_lb_controller" {
   repository = "https://aws.github.io/eks-charts"
   chart      = "aws-load-balancer-controller"
 
-  set = [
-    { 
-      name  = "clusterName"
-      value = module.eks.cluster_name
-    },
-    { 
-      name  = "region"
-      value = var.region
-    },
-    { 
-      name  = "vpcId"
-      value = module.vpc.vpc_id
-    },
-    { 
-      name  = "serviceAccount.create"
-      value = "true"
-    },
-    { 
-      name  = "serviceAccount.name"
-      value = "aws-load-balancer-controller"
-    },
-    { 
-      name  = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
-      value = module.irsa_aws_lb_controller.iam_role_arn
-    }
-  ]
+  set {
+    name  = "clusterName"
+    value = module.eks.cluster_name
+  }
+
+  set {
+    name  = "region"
+    value = var.region
+  }
+
+  set {
+    name  = "vpcId"
+    value = module.vpc.vpc_id
+  }
+
+  set {
+    name  = "serviceAccount.create"
+    value = "true"
+  }
+
+  set {
+    name  = "serviceAccount.name"
+    value = "aws-load-balancer-controller"
+  }
+
+  set {
+    name  = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
+    value = module.irsa_aws_lb_controller.iam_role_arn
+  }
 
   depends_on = [
     module.eks,
@@ -284,37 +308,40 @@ resource "helm_release" "external_dns" {
   repository = "https://kubernetes-sigs.github.io/external-dns/"
   chart      = "external-dns"
 
-  set = [
-  { 
+  set {
     name  = "provider"
     value = "aws"
-  },
-  { 
+  }
+
+  set {
     name  = "policy"
     value = "sync"
-  },
-  { 
+  }
+
+  set {
     name  = "registry"
     value = "txt"
-  },
-  { 
+  }
+
+  set {
     name  = "txtOwnerId"
     value = module.eks.cluster_name
-  },
-  { 
+  }
+
+  set {
     name  = "serviceAccount.create"
     value = "true"
-  },
-  { 
+  }
+
+  set {
     name  = "serviceAccount.name"
     value = "external-dns"
-  },
-  { 
+  }
+
+  set {
     name  = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
     value = module.irsa_external_dns.iam_role_arn
   }
-]
-
 
   depends_on = [
     module.eks,
@@ -332,12 +359,10 @@ resource "helm_release" "metrics_server" {
   repository = "https://kubernetes-sigs.github.io/metrics-server/"
   chart      = "metrics-server"
 
-  set = [
-    { 
-      name  = "args"
-      value = "{--kubelet-insecure-tls}"
-    }
-  ]
+  set {
+    name  = "args"
+    value = "{--kubelet-insecure-tls}"
+  }
 
   depends_on = [module.eks]
 }
