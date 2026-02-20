@@ -24,7 +24,7 @@ pipeline {
                 expression { params.TF_INIT }
             }
             steps {
-                sh 'terraform init'
+                sh 'terraform init --upgrade'
             }
         }
 
